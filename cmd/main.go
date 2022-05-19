@@ -4,11 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 
 	"github.com/flyteorg/flytepropeller/pkg/apis/flyteworkflow"
 	"github.com/flyteorg/flytepropeller/pkg/apis/flyteworkflow/v1alpha1"
 	clientset "github.com/flyteorg/flytepropeller/pkg/client/clientset/versioned"
-	//v1alpha12 "github.com/flyteorg/flytepropeller/pkg/client/clientset/versioned/typed/flyteworkflow/v1alpha1"
 	"github.com/flyteorg/flytepropeller/pkg/controller/config"
 	"github.com/flyteorg/flytepropeller/pkg/utils"
 
@@ -21,7 +21,8 @@ import (
 
 const (
 	namespace = "flytesnacks-development"
-	nodeCount = 10
+	threadCount = 100 // one workflow per thread
+	nodeCount = 20
 )
 
 type NodeStatusPatch struct {
@@ -99,35 +100,49 @@ func main() {
 		}
 	}
 
-	// create workflow
-	nodeStatuses := make(map[v1alpha1.NodeID]*v1alpha1.NodeStatus)
-	for i:=0; i<nodeCount; i++ {
-		nodeStatuses[fmt.Sprintf("node-%d", i)] = &v1alpha1.NodeStatus{
-			Phase: v1alpha1.NodePhaseNotYetStarted,
-		}
+	var wg sync.WaitGroup
+	wg.Add(threadCount)
+	for i:=0; i<threadCount; i++ {
+		go func(i int){
+			defer wg.Done()
+
+			// create workflow
+			nodeStatuses := make(map[v1alpha1.NodeID]*v1alpha1.NodeStatus)
+			for j:=0; j<nodeCount; j++ {
+				nodeStatuses[fmt.Sprintf("node-%d", j)] = &v1alpha1.NodeStatus{
+					Phase: v1alpha1.NodePhaseNotYetStarted,
+				}
+			}
+
+			workflow := &v1alpha1.FlyteWorkflow{
+				TypeMeta: metav1.TypeMeta{
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name: fmt.Sprintf("benchmark-%d", i),
+					Namespace: namespace,
+				},
+				Status: v1alpha1.WorkflowStatus{
+					NodeStatus: nodeStatuses,
+				},
+			}
+
+			workflow, err = flyteworkflowClient.FlyteworkflowV1alpha1().FlyteWorkflows(namespace).Create(ctx, workflow, metav1.CreateOptions{})
+			if err != nil {
+				fmt.Printf("failed to create FlyteWorkflow CRD with err '%v'\n", err)
+				return
+			}
+
+			patchSingle(ctx, workflow, flyteworkflowClient)
+			//patchAll(ctx, workflow, flyteworkflowClient)
+			//updateSingle(ctx, workflow, flyteworkflowClient)
+			//updateAll(ctx, workflow, flyteworkflowClient)
+		}(i)
 	}
-	//fmt.Printf("%+v\n", workflow)
 
-	workflow := &v1alpha1.FlyteWorkflow{
-		TypeMeta: metav1.TypeMeta{
-		},
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "foo",
-			Namespace: namespace,
-		},
-		Status: v1alpha1.WorkflowStatus{
-			NodeStatus: nodeStatuses,
-		},
-	}
+	wg.Wait()
+}
 
-
-	workflow, err = flyteworkflowClient.FlyteworkflowV1alpha1().FlyteWorkflows(namespace).Create(ctx, workflow, metav1.CreateOptions{})
-	if err != nil {
-		fmt.Printf("failed to create FlyteWorkflow CRD with err '%v'\n", err)
-		return
-	}
-
-	// patch workflow
+func patchSingle(ctx context.Context, workflow *v1alpha1.FlyteWorkflow, flyteworkflowClient *clientset.Clientset) {
 	for i:=0; i<nodeCount; i++ {
 		nodeId := fmt.Sprintf("node-%d", i)
 		status := workflow.Status.NodeStatus[nodeId]
@@ -150,5 +165,63 @@ func main() {
 			fmt.Printf("failed to patch FlyteWorkflow CRD with err '%v'\n", err)
 			return
 		}
+	}
+}
+
+func patchAll(ctx context.Context, workflow *v1alpha1.FlyteWorkflow, flyteworkflowClient *clientset.Clientset) {
+	var err error
+	var nodeStatusPatch []NodeStatusPatch
+	for i:=0; i<nodeCount; i++ {
+		nodeId := fmt.Sprintf("node-%d", i)
+		status := workflow.Status.NodeStatus[nodeId]
+		status.Phase = v1alpha1.NodePhaseRunning
+		
+		nodeStatusPatch = append(nodeStatusPatch, NodeStatusPatch{
+			Op:   "replace",
+			Path: fmt.Sprintf("/status/nodeStatus/node-%d", i),
+			Value: status,
+		})
+	}
+
+	patchBytes, err := json.Marshal(nodeStatusPatch)
+	if err != nil {
+		fmt.Printf("failed to marshal FlyteWorkflow CRD patch err '%v'\n", err)
+		return
+	}
+
+	workflow, err = flyteworkflowClient.FlyteworkflowV1alpha1().FlyteWorkflows(namespace).Patch(ctx, workflow.ObjectMeta.Name, types.JSONPatchType, patchBytes, metav1.PatchOptions{})
+	if err != nil {
+		fmt.Printf("failed to patch FlyteWorkflow CRD with err '%v'\n", err)
+		return
+	}
+}
+
+func updateSingle(ctx context.Context, workflow *v1alpha1.FlyteWorkflow, flyteworkflowClient *clientset.Clientset) {
+	var err error
+	for i:=0; i<nodeCount; i++ {
+		nodeId := fmt.Sprintf("node-%d", i)
+		status := workflow.Status.NodeStatus[nodeId]
+		status.Phase = v1alpha1.NodePhaseRunning
+
+		workflow, err = flyteworkflowClient.FlyteworkflowV1alpha1().FlyteWorkflows(namespace).Update(ctx, workflow, metav1.UpdateOptions{})
+		if err != nil {
+			fmt.Printf("failed to update FlyteWorkflow CRD with err '%v'\n", err)
+			return
+		}
+	}
+}
+
+func updateAll(ctx context.Context, workflow *v1alpha1.FlyteWorkflow, flyteworkflowClient *clientset.Clientset) {
+	var err error
+	for i:=0; i<nodeCount; i++ {
+		nodeId := fmt.Sprintf("node-%d", i)
+		status := workflow.Status.NodeStatus[nodeId]
+		status.Phase = v1alpha1.NodePhaseRunning
+	}
+
+	workflow, err = flyteworkflowClient.FlyteworkflowV1alpha1().FlyteWorkflows(namespace).Update(ctx, workflow, metav1.UpdateOptions{})
+	if err != nil {
+		fmt.Printf("failed to update FlyteWorkflow CRD with err '%v'\n", err)
+		return
 	}
 }

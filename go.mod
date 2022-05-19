@@ -1,8 +1,12 @@
-module github.com/hamersaw/k8s-patch-benchmark
+module github.com/hamersaw/k8s-crd-benchmark
 
 go 1.18
 
-require github.com/flyteorg/flytepropeller v1.1.3
+require (
+	github.com/flyteorg/flytepropeller v1.1.3
+	k8s.io/apiextensions-apiserver v0.20.1
+	k8s.io/apimachinery v0.20.2
+)
 
 require (
 	cloud.google.com/go v0.78.0 // indirect
@@ -77,8 +81,6 @@ require (
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.0-20210107192922-496545a6307b // indirect
 	k8s.io/api v0.20.2 // indirect
-	k8s.io/apiextensions-apiserver v0.20.1 // indirect
-	k8s.io/apimachinery v0.20.2 // indirect
 	k8s.io/client-go v0.20.2 // indirect
 	k8s.io/klog/v2 v2.5.0 // indirect
 	k8s.io/kube-openapi v0.0.0-20201113171705-d219536bb9fd // indirect
