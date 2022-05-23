@@ -5,12 +5,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/flyteorg/flytepropeller/pkg/apis/flyteworkflow"
 	"github.com/flyteorg/flytepropeller/pkg/apis/flyteworkflow/v1alpha1"
 	clientset "github.com/flyteorg/flytepropeller/pkg/client/clientset/versioned"
 	"github.com/flyteorg/flytepropeller/pkg/controller/config"
 	"github.com/flyteorg/flytepropeller/pkg/utils"
+
+	stdconfig "github.com/flyteorg/flytestdlib/config"
 
 	apiextensionsclientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 
@@ -21,8 +24,8 @@ import (
 
 const (
 	namespace = "flytesnacks-development"
-	threadCount = 100 // one workflow per thread
-	nodeCount = 20
+	threadCount = 150 // one workflow per thread
+	nodeCount = 100
 )
 
 type NodeStatusPatch struct {
@@ -31,46 +34,17 @@ type NodeStatusPatch struct {
 	Value *v1alpha1.NodeStatus `json:"value"`
 }
 
-/*type NodeStatus struct {
-	MutableStruct
-	Phase                NodePhase     `json:"phase,omitempty"`
-	QueuedAt             *metav1.Time  `json:"queuedAt,omitempty"`
-	StartedAt            *metav1.Time  `json:"startedAt,omitempty"`
-	StoppedAt            *metav1.Time  `json:"stoppedAt,omitempty"`
-	LastUpdatedAt        *metav1.Time  `json:"lastUpdatedAt,omitempty"`
-	LastAttemptStartedAt *metav1.Time  `json:"laStartedAt,omitempty"`
-	Message              string        `json:"message,omitempty"`
-	DataDir              DataReference `json:"-"`
-	OutputDir            DataReference `json:"-"`
-	Attempts             uint32        `json:"attempts,omitempty"`
-	SystemFailures       uint32        `json:"systemFailures,omitempty"`
-	Cached               bool          `json:"cached,omitempty"`
-
-	// This is useful only for branch nodes. If this is set, then it can be used to determine if execution can proceed
-	ParentNode    *NodeID                  `json:"parentNode,omitempty"`
-	ParentTask    *TaskExecutionIdentifier `json:"-"`
-	BranchStatus  *BranchNodeStatus        `json:"branchStatus,omitempty"`
-	SubNodeStatus map[NodeID]*NodeStatus   `json:"subNodeStatus,omitempty"`
-	// We can store the outputs at this layer
-
-	// TODO not used delete
-	WorkflowNodeStatus *WorkflowNodeStatus `json:"workflowNodeStatus,omitempty"`
-
-	TaskNodeStatus    *TaskNodeStatus    `json:",omitempty"`
-	DynamicNodeStatus *DynamicNodeStatus `json:"dynamicNodeStatus,omitempty"`
-	// In case of Failing/Failed Phase, an execution error can be optionally associated with the Node
-	Error *ExecutionError `json:"error,omitempty"`
-
-	// Not Persisted
-	DataReferenceConstructor storage.ReferenceConstructor `json:"-"`
-}*/
-
 func main() {
 	ctx := context.Background()
 
 	// initialize kube client 
 	cfg := &config.Config{
 		KubeConfigPath: "$HOME/.kube/config",
+		KubeConfig: config.KubeClientConfig{
+			QPS:     100,
+			Burst:   25,
+			Timeout: stdconfig.Duration{Duration: 30 * time.Second},
+		},
 	}
 
 	_, kubecfg, err := utils.GetKubeConfig(ctx, cfg)
